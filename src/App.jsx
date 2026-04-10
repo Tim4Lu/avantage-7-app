@@ -2,12 +2,16 @@ import React, { useState } from 'react';
 import Scanner from './components/Scanner';
 import AddProduct from './components/AddProduct';
 import ProductList from './components/ProductList';
+import GlobalProductModal from './components/GlobalProductModal';
+
 import { Scan, Package, PlusCircle } from 'lucide-react';
 
 function App() {
   const [view, setView] = useState('scan'); 
   const [scannedBarcode, setScannedBarcode] = useState('');
   const [isCashback, setIsCashback] = useState(false); // Додали стан для кешбеку
+  const [isGlobalModalOpen, setIsGlobalModalOpen] = useState(false);
+  const [selectedBarcode, setSelectedBarcode] = useState('');
 
   // ВИПРАВЛЕНО: Тепер функція приймає два аргументи
   const handleScanSuccess = (barcode, foundCashback) => {
@@ -16,10 +20,15 @@ function App() {
     setView('add'); 
   };
 
+  const handleOpenGlobalModal = (barcode) => {
+  setSelectedBarcode(barcode); // Запам'ятовуємо код
+  setIsGlobalModalOpen(true);   // Відкриваємо модалку
+};
+
   return (
     <div className="min-h-screen bg-slate-50 pb-28">
       {/* Шапка Авантаж 7 */}
-      <header className="bg-av-blue p-8 rounded-b-[3rem] shadow-2xl mb-8">
+      <header className="bg-av-blue p-8 rounded-b-[3rem] shadow-2xl mb-0.1">
         <h1 className="text-white text-3xl font-black italic tracking-tighter">
           AVANTAGE <span className="text-av-orange">7</span>
         </h1>
@@ -28,7 +37,7 @@ function App() {
         </p>
       </header>
 
-      <main className="px-4">
+      <main className="px-4" >
         {view === 'scan' && (
           <Scanner 
             onScanSuccess={handleScanSuccess} 

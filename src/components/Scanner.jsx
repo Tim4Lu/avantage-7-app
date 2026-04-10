@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'; // Додали формати
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { AlertCircle } from 'lucide-react';
 import { supabase } from '../supabase';
 
@@ -10,12 +10,10 @@ const Scanner = ({ onScanSuccess, onCashbackFound }) => {
   const isProcessing = useRef(false);
 
   useEffect(() => {
-    // Налаштовуємо конфіг для штрих-кодів
     const config = { 
       fps: 20, 
-      qrbox: { width: 280, height: 150 }, // Прямокутник краще для штрих-кодів
+      qrbox: { width: 280, height: 150 }, 
       aspectRatio: 1.0,
-      // Вказуємо конкретно формати, які використовуються на товарах
       formatsToSupport: [ 
         Html5QrcodeSupportedFormats.EAN_13, 
         Html5QrcodeSupportedFormats.EAN_8, 
@@ -37,32 +35,58 @@ const Scanner = ({ onScanSuccess, onCashbackFound }) => {
             if (isProcessing.current) return;
             isProcessing.current = true;
 
-            // Очищаємо код від зайвих символів
             const cleanBarcode = decodedText.trim();
             setStatus(`ЗЧИТАНО: ${cleanBarcode}`);
 
             try {
-              // Зупиняємо камеру, щоб не було повторних спрацювань
               if (scannerRef.current?.isScanning) {
                 await scannerRef.current.stop();
               }
               
-              setStatus('ПЕРЕВІРКА КЕШБЕКУ...');
+              setStatus('ПОШУК ТОВАРУ ТА КЕШБЕКУ...');
 
-              // ПЕРЕВІРКА: додаємо .trim() і в запит
-              const { data, error: sbError } = await supabase
-                .from('cashback_codes')
-                .select('barcode')
-                .eq('barcode', cleanBarcode)
-                .maybeSingle();
+              // ЛОГІКА ПАРАЛЕЛЬНОГО ПОШУКУ (Крок 1)
+              const [globalResponse, cashbackResult] = await Promise.all([
+                // 1. Запит до всесвітньої бази
+                fetch(`https://world.openfoodfacts.org/api/v2/product/${cleanBarcode}.json`),
+                
+                // 2. Запит до твоєї бази кешбеку
+                supabase
+                  .from('cashback_codes')
+                  .select('barcode')
+                  .eq('barcode', cleanBarcode)
+                  .maybeSingle()
+              ]);
 
-              if (sbError) console.error("Supabase Error:", sbError);
+              const globalData = await globalResponse.json();
+              const hasCashback = !!cashbackResult.data;
 
-              const hasCashback = !!data;
+              // Формуємо дані про товар
+              let productData = null;
+              
+              if (globalData.status === 1) {
+                // Товар знайдено у глобальній базі
+                productData = {
+                  name: globalData.product.product_name || "Назва невідома",
+                  image: globalData.product.image_url || null,
+                  volume: globalData.product.quantity || "Не вказано",
+                  barcode: cleanBarcode,
+                  hasCashback: hasCashback
+                };
+              } else {
+                // Товар новий (немає в глобальній базі)
+                productData = { 
+                  barcode: cleanBarcode, 
+                  hasCashback: hasCashback, 
+                  isNew: true 
+                };
+              }
 
-              // Повертаємо результат
+              // Повертаємо результат (Крок 2)
               if (onCashbackFound) onCashbackFound(hasCashback);
-              onScanSuccess(cleanBarcode, hasCashback);
+              
+              // Тепер передаємо об'єкт productData замість простого штрихкоду
+              onScanSuccess(productData);
 
             } catch (err) {
               console.error("Scanner process error:", err);
@@ -83,8 +107,7 @@ const Scanner = ({ onScanSuccess, onCashbackFound }) => {
         scannerRef.current.stop().catch(e => console.error("Stop error:", e));
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Пустий масив, щоб не перестворювати камеру щосекунди
+  }, []);
 
   return (
     <div className="flex flex-col items-center w-full">
@@ -97,7 +120,6 @@ const Scanner = ({ onScanSuccess, onCashbackFound }) => {
           </div>
         )}
 
-        {/* Лінія сканування */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[85%] h-[2px] bg-av-orange shadow-[0_0_15px_#ff7900] animate-pulse z-10"></div>
         
         {error && (

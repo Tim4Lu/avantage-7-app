@@ -1,63 +1,51 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
-import { BadgeCheck, Save, XCircle, PlusCircle, Globe } from 'lucide-react';
+import { BadgeCheck, Save, Globe, CheckSquare, Square, Beaker, ShieldCheck, XCircle, PlusCircle, Image as ImageIcon } from 'lucide-react';
 
-// ВИПРАВЛЕНО: Додано initialCashback у пропси
-const AddProduct = ({ initialBarcode, initialCashback, onSave }) => {
-  const [barcode, setBarcode] = useState(initialBarcode || '');
-  const [foundProduct, setFoundProduct] = useState(null);
+const AddProduct = ({ initialBarcode, onSave, onOpenGlobalModal }) => {
+  // Розпаковка даних від сканера
+  const isObj = typeof initialBarcode === 'object' && initialBarcode !== null;
+  const barcodeStr = isObj ? initialBarcode.barcode : (initialBarcode || '');
+  const initialName = isObj ? initialBarcode.name : '';
+  const initialImg = isObj ? initialBarcode.image : '';
+  const initialVol = isObj ? initialBarcode.volume : '';
+  const initialCB = isObj ? initialBarcode.hasCashback : false;
+
+  const [barcode] = useState(barcodeStr);
+  const [isCashback] = useState(initialCB);
   const [expiryDate, setExpiryDate] = useState('');
-  
-  // ВИПРАВЛЕНО: Стейт ініціалізується даними зі сканера
-  const [isCashback, setIsCashback] = useState(initialCashback || false);
-  
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [isCarlsberg, setIsCarlsberg] = useState(false);
+
+  const [foundProduct, setFoundProduct] = useState(initialName ? {
+    name: initialName,
+    image: initialImg,
+    volume: initialVol,
+    source: 'scanner'
+  } : null);
 
   useEffect(() => {
-    // Якщо код прийшов зі сканера, не треба перевіряти його ще раз
-    if (barcode && barcode.length >= 8) {
-      if (barcode !== initialBarcode) {
-         // Шукаємо тільки якщо це ручне введення (код відрізняється від початкового)
-         checkBarcode(barcode);
+    if (barcode && !initialName) {
+      findProductDetails(barcode);
+    }
+  }, [barcode, initialName]);
+
+  const findProductDetails = async (code) => {
+    setSearching(true);
+    try {
+      const { data: pData } = await supabase.from('products').select('*').eq('barcode', code).limit(1).maybeSingle();
+      if (pData) {
+        setFoundProduct({ ...pData, source: 'local' });
+        setIsCarlsberg(!!pData.is_carlsberg);
       } else {
-         // Якщо зі сканера, шукаємо тільки назву, бо кешбек вже перевірено
-         findProductNameOnly(barcode);
+        await searchGlobalApi(code);
       }
-    } else {
-      setFoundProduct(null);
-      setIsCashback(false);
+    } catch (err) {
+      console.error("Fetch error:", err);
+    } finally {
+      setSearching(false);
     }
-  }, [barcode, initialBarcode]);
-
-  // Спрощений пошук назви, коли кешбек вже відомий
-  const findProductNameOnly = async (code) => {
-    setSearching(true);
-    const { data: pData } = await supabase.from('products').select('name, is_carlsberg').eq('barcode', code).limit(1).maybeSingle();
-    
-    if (pData) {
-      setFoundProduct({ ...pData, source: 'local' });
-    } else {
-      await searchGlobalApi(code);
-    }
-    setSearching(false);
-  };
-
-  const checkBarcode = async (code) => {
-    setSearching(true);
-    
-    // ВИПРАВЛЕНО: Повертаємо пошук через Supabase. Браузер заблокує запит на ubf.gov.ua
-    const { data: cbData } = await supabase.from('cashback_codes').select('barcode').eq('barcode', code).maybeSingle();
-    setIsCashback(!!cbData);
-
-    const { data: pData } = await supabase.from('products').select('name, is_carlsberg').eq('barcode', code).limit(1).maybeSingle();
-
-    if (pData) {
-      setFoundProduct({ ...pData, source: 'local' });
-    } else {
-      await searchGlobalApi(code);
-    }
-    setSearching(false);
   };
 
   const searchGlobalApi = async (code) => {
@@ -66,8 +54,9 @@ const AddProduct = ({ initialBarcode, initialCashback, onSave }) => {
       const apiData = await response.json();
       if (apiData.status === 1) {
         setFoundProduct({
-          name: apiData.product.product_name || apiData.product.generic_name || "Товар без назви",
-          is_carlsberg: false,
+          name: apiData.product.product_name || "Товар без назви",
+          image: apiData.product.image_url,
+          volume: apiData.product.quantity || "Не вказано",
           source: 'world'
         });
       } else {
@@ -79,110 +68,140 @@ const AddProduct = ({ initialBarcode, initialCashback, onSave }) => {
   };
 
   const handleSave = async (e) => {
-    e.preventDefault();
-    if (!barcode || !expiryDate || !foundProduct) return;
+    if (e) e.preventDefault();
+    if (!barcode || !foundProduct?.name || !expiryDate) return alert("Заповніть дату!");
 
     setLoading(true);
     try {
-      const { error } = await supabase.from('products').insert([{
-        barcode,
-        name: foundProduct.name,
-        expiry_date: expiryDate,
-        is_carlsberg: foundProduct.is_carlsberg,
-        is_cashback: isCashback
-      }]);
+      const { error } = await supabase
+        .from('products')
+        .insert([{
+          barcode: String(barcode),
+          name: foundProduct.name,
+          expiry_date: expiryDate,
+          is_carlsberg: isCarlsberg,
+          is_cashback: Boolean(isCashback)
+        }]);
 
       if (error) throw error;
-      onSave();
+      alert("✅ Термін успішно записано!");
+      if (onSave) onSave();
     } catch (err) {
-      alert("Помилка при збереженні");
+      alert(`Помилка: ${err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="max-w-md mx-auto space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="max-w-md mx-auto space-y-2 pt-1 pb-4 px-4">
       
-      <div className="w-full h-16 flex items-center justify-center text-center">
+      <div className="w-full h-8 flex items-center justify-center">
         {isCashback && (
-          <div className="flex items-center gap-3 bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-lg border-2 border-blue-400 animate-bounce">
-            <BadgeCheck size={20} className="text-yellow-400" />
-            <span className="font-black text-[12px] uppercase">Національний Кешбек 10%</span>
+          <div className="flex items-center gap-1.5 bg-blue-600/10 text-blue-600 px-3 py-1 rounded-full border border-blue-100 animate-pulse">
+            <BadgeCheck size={12} />
+            <span className="font-black text-[8px] uppercase">Національний кешбек</span>
           </div>
         )}
       </div>
 
-      <div className="bg-white rounded-[2.5rem] p-8 shadow-av border border-slate-100 space-y-6">
-        <div>
-          <label className="block text-[10px] font-black text-av-blue uppercase tracking-widest mb-2 ml-2">Штрих-код</label>
-          <div className="relative">
-            <input
-              type="number"
-              value={barcode}
-              onChange={(e) => setBarcode(e.target.value)}
-              className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 text-xl font-black text-av-blue outline-none focus:border-av-orange transition-all"
-              placeholder="00000000"
-            />
-            {barcode && (
-              <button type="button" onClick={() => {setBarcode(''); setIsCashback(false);}} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300">
-                <XCircle size={20} />
-              </button>
+      <div className="bg-white rounded-[2rem] p-6 shadow-av border border-slate-50 space-y-4">
+        
+        {/* Фото товару */}
+        <div className="w-full h-36 bg-slate-50 rounded-[1.5rem] overflow-hidden border border-slate-100 flex items-center justify-center relative">
+          {foundProduct?.image ? (
+            <img src={foundProduct.image} alt="Product" className="w-full h-full object-contain p-2" />
+          ) : (
+            <div className="flex flex-col items-center gap-1 text-slate-300">
+              <ImageIcon size={28} />
+              <span className="text-[7px] font-black uppercase tracking-tighter">Немає фото</span>
+            </div>
+          )}
+          <div className="absolute bottom-2 right-2 bg-white/90 backdrop-blur px-2 py-0.5 rounded-md text-[7px] font-black text-av-blue border border-slate-100 shadow-sm">
+            {String(barcode)}
+          </div>
+        </div>
+
+        {/* Опис товару */}
+        <div className="space-y-1.5">
+          <h3 className="font-black text-av-blue text-sm uppercase leading-tight line-clamp-2 text-center">
+            {searching ? "АНАЛІЗ..." : (foundProduct?.name || "НЕВІДОМИЙ ТОВАР")}
+          </h3>
+          
+          {/* ПЛЮСИК: З'являється ТІЛЬКИ якщо товар не знайдено і пошук завершено */}
+          {!foundProduct && !searching && (
+             <div className="flex flex-col items-center gap-2 mt-2">
+               <span className="text-[8px] font-bold text-slate-400 uppercase">Товар відсутній у базах</span>
+               <button 
+                 onClick={() => onOpenGlobalModal(barcode)}
+                 className="flex items-center gap-2 px-4 py-2 bg-av-orange text-white rounded-xl shadow-lg active:scale-95 transition-all animate-bounce"
+               >
+                 <PlusCircle size={20} />
+                 <span className="text-[10px] font-black uppercase">Додати товар</span>
+               </button>
+             </div>
+          )}
+          
+          <div className="flex items-center justify-center gap-3">
+            {foundProduct?.volume && (
+              <div className="flex items-center gap-1 text-av-orange font-black text-[8px] uppercase">
+                <Beaker size={10} /> {foundProduct.volume}
+              </div>
+            )}
+            {foundProduct && (
+              <div className="flex items-center gap-1 text-slate-400 font-black text-[8px] uppercase">
+                <Globe size={10} className="text-blue-400" /> {foundProduct?.source === 'world' ? 'Global' : 'My DB'}
+              </div>
+            )}
+          </div>
+
+          <div className={`mt-2 py-2 rounded-xl flex items-center justify-center gap-2 border ${isCashback ? 'bg-green-50 border-green-100 text-green-600' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
+            {isCashback ? (
+              <>
+                <ShieldCheck size={14} />
+                <span className="font-black text-[9px] uppercase tracking-wider">Кешбек підтверджено</span>
+              </>
+            ) : (
+              <>
+                <XCircle size={14} className="opacity-30" />
+                <span className="font-black text-[9px] uppercase tracking-wider opacity-60">Без кешбеку</span>
+              </>
             )}
           </div>
         </div>
 
-        <div className="min-h-[90px] flex items-center justify-center p-4 rounded-3xl bg-slate-50 border-2 border-dashed border-slate-200 transition-all">
-          {searching ? (
-            <div className="flex flex-col items-center gap-2">
-              <span className="text-[10px] font-bold text-slate-400 animate-pulse uppercase tracking-tighter text-center">
-                Шукаю товар...
-              </span>
-            </div>
-          ) : foundProduct ? (
-            <div className="text-center">
-              <div className="flex items-center justify-center gap-2 mb-1">
-                {foundProduct.source === 'world' && <Globe size={12} className="text-blue-500" />}
-                <h4 className="text-av-blue font-black uppercase text-sm leading-tight">
-                  {foundProduct.name}
-                </h4>
-              </div>
-              <span className="text-[8px] font-black opacity-40 uppercase">
-                {foundProduct.source === 'world' ? 'Знайдено в мережі' : 'Твій товар'}
-              </span>
-            </div>
-          ) : barcode.length >= 8 ? (
-            <div className="flex flex-col items-center gap-2">
-              <span className="text-[10px] font-bold text-red-400 uppercase">Товар не знайдено ніде</span>
-              <button type="button" className="flex items-center gap-2 bg-av-blue text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase shadow-md active:scale-95">
-                <PlusCircle size={14} /> Створити картку
-              </button>
-            </div>
-          ) : (
-            <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">Чекаю код...</span>
-          )}
-        </div>
+        {/* Carlsberg */}
+        <button 
+          type="button"
+          onClick={() => setIsCarlsberg(!isCarlsberg)}
+          className={`w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all ${isCarlsberg ? 'border-av-orange bg-orange-50' : 'border-slate-50 bg-white'}`}
+        >
+          <div className="flex items-center gap-2">
+            {isCarlsberg ? <CheckSquare className="text-av-orange" size={16} /> : <Square className="text-slate-200" size={16} />}
+            <span className={`text-[8px] font-black uppercase ${isCarlsberg ? 'text-av-orange' : 'text-slate-400'}`}>Продукція Carlsberg (55д)</span>
+          </div>
+        </button>
 
-        <div className={!foundProduct ? 'opacity-30 pointer-events-none transition-opacity' : 'transition-opacity'}>
-          <label className="block text-[10px] font-black text-av-blue uppercase tracking-widest mb-2 ml-2">Вжити до (Дата)</label>
+        {/* Дата */}
+        <div className="space-y-1">
           <input
             type="date"
             value={expiryDate}
             onChange={(e) => setExpiryDate(e.target.value)}
-            className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 text-sm font-black text-av-blue outline-none focus:border-av-orange transition-all"
+            className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-2.5 text-xs font-black text-av-blue outline-none"
           />
         </div>
 
         <button
           onClick={handleSave}
           disabled={loading || !foundProduct || !expiryDate}
-          className={`w-full py-6 rounded-[1.5rem] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-3 transition-all ${
+          className={`w-full py-3.5 rounded-xl font-black uppercase text-[10px] flex items-center justify-center gap-2 transition-all ${
             !foundProduct || !expiryDate 
             ? 'bg-slate-100 text-slate-300' 
-            : 'bg-av-blue text-white shadow-xl shadow-blue-100 active:scale-95'
+            : 'bg-av-blue text-white shadow-lg active:scale-95'
           }`}
         >
-          {loading ? 'Записую...' : <><Save size={20} /> Записати термін</>}
+          {loading ? 'ЗАПИС...' : <><Save size={14} /> ЗАПИСАТИ ТЕРМІН</>}
         </button>
       </div>
     </div>
