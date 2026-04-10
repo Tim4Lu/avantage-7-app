@@ -1,0 +1,12 @@
+{
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" }
+  ],
+  "crons": [
+    {
+      "path": "/api/sync-cashback",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}

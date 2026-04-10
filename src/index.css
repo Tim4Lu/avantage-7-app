@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+/* Налаштування теми Авантаж 7 */
+@theme {
+  /* Фірмові кольори */
+  --color-av-blue: #00458b;
+  --color-av-orange: #ff7900;
+  --color-av-dark: #002d5d;
+  --color-av-light: #eef2f6;
+  
+  /* Кастомні тіні для карток */
+  --shadow-av: 0 10px 25px -5px rgba(0, 69, 139, 0.1), 0 8px 10px -6px rgba(0, 69, 139, 0.1);
+  --shadow-orange: 0 10px 20px -5px rgba(255, 121, 0, 0.3);
+
+  /* Закруглення */
+  --radius-xl: 1.5rem;
+  --radius-2xl: 2rem;
+  --radius-3xl: 3rem;
+}
+
+/* Базові налаштування для всього додатка */
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-av-light text-slate-900 font-sans antialiased;
+    /* Щоб не було "гумового" скролу на iPhone */
+    overscroll-behavior-y: none;
+  }
+}
+
+/* Кастомні утиліти та анімації */
+@layer components {
+  .btn-primary {
+    @apply bg-av-blue text-white px-6 py-4 rounded-2xl font-black 
+           uppercase tracking-tight shadow-av active:scale-95 transition-all
+           flex items-center justify-center gap-2;
+  }
+
+  .btn-orange {
+    @apply bg-av-orange text-white px-6 py-4 rounded-2xl font-black 
+           uppercase tracking-tight shadow-orange active:scale-95 transition-all
+           flex items-center justify-center gap-2;
+  }
+
+  .input-field {
+    @apply w-full px-5 py-4 bg-white rounded-2xl border-2 border-transparent 
+           focus:border-av-blue outline-none transition-all font-bold 
+           placeholder:text-slate-300 shadow-sm;
+  }
+}
+
+/* Анімація лазерної лінії для сканера */
+@keyframes scanner-line {
+  0% { top: 0%; opacity: 0; }
+  5% { opacity: 1; }
+  95% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+.animate-scan {
+  animation: scanner-line 2.5s ease-in-out infinite;
+}
+
+/* Стилізація календаря (input type="date") */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  @apply opacity-50;
+  filter: invert(21%) sepia(59%) saturate(2853%) hue-rotate(195deg) brightness(92%) contrast(104%);
+}
